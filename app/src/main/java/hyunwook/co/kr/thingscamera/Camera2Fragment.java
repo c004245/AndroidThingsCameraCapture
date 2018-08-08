@@ -28,6 +28,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.Toast;
 
 import java.nio.ByteBuffer;
@@ -37,7 +38,7 @@ import java.util.Arrays;
  * Created by hyunwook on 2018-08-07.
  */
 
-public class Camera2Fragment extends android.support.v4.app.Fragment {
+public class Camera2Fragment extends android.support.v4.app.Fragment implements View.OnClickListener{
     static final String TAG = Camera2Fragment.class.getSimpleName();
     TextureView mTextureView;
 
@@ -48,6 +49,8 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
     Size imageDimension;
     private String cameraId;
     private Context context;
+    private Button capBtn;
+
     /**
      * An additional thread for running tasks that shouldn't block the UI.
      */
@@ -70,6 +73,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
     @Override
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         mTextureView = (TextureView) view.findViewById(R.id.texture);
+        view.findViewById(R.id.picture).setOnClickListener(this);
 
     }
     @Override
@@ -85,6 +89,17 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
             mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
         }
 
+    }
+
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
+            case R.id.picture: {
+                Log.d(TAG, "picture===");
+                takePicture();
+                break;
+            }
+        }
     }
 
     private ImageReader.OnImageAvailableListener mOnImageAvailableListener =
@@ -149,7 +164,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
 
             imageDimension = map.getOutputSizes(SurfaceTexture.class)[2];
 
-            mImageReader = ImageReader.newInstance(320, 240, ImageFormat.JPEG, 1);
+            mImageReader = ImageReader.newInstance(320, 240, ImageFormat.JPEG, 2);
 
             mImageReader.setOnImageAvailableListener(imageAvailableListener, mBackgroundHandler);
             manager.openCamera(cameraId, stateCallback, mBackgroundHandler);
@@ -188,8 +203,11 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
     private CameraCaptureSession mCaptureSession;
 
     private void createCameraPreview() {
+        Log.d(TAG, "createCameraPreview ----");
         try {
             SurfaceTexture texture = mTextureView.getSurfaceTexture();
+            assert texture != null;
+
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
 
             Surface surface = new Surface(texture);
@@ -199,7 +217,8 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
 
 
             //dif
-            cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
+            cameraDevice.createCaptureSession(Arrays.asList(surface),
+                    new CameraCaptureSession.StateCallback() {
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession session) {
                     if (cameraDevice == null) {
@@ -211,7 +230,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
                     try {
                         mPreviewRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
-                        mCaptureSession.setRepeatingRequest(mPreviewRequestBuilder.build(), null, mBackgroundHandler);
+                        mCaptureSession.setRepeatingRequest(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
                     } catch (CameraAccessException e) {
                         e.printStackTrace();
                     }
@@ -265,18 +284,23 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
      */
     private static final int STATE_PICTURE_TAKEN = 4;
 
+    private CaptureRequest captureRequest;
 
     private void takePicture() {
         Log.d(TAG, "takePicture");
+        try {
         if (cameraDevice == null) {
             return;
         }
+            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
+
             mState = STATE_WAITING_LOCK;
 
-                mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
-                mCaptureSession.capture(mPreviewRequestBuilder.build(), mcCaptureCallback, mBackgroundHandler);
+             mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
 
 
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
         }
     }
 
@@ -287,6 +311,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
             = new CameraCaptureSession.CaptureCallback() {
 
         private void process(CaptureResult result) {
+            //Log.d(TAG, "mCaptureCallback -->" +mState);
             //Log.d(TAG, "mCaptureCallback ----");
             switch (mState) {
                 case STATE_PREVIEW: {
@@ -294,21 +319,32 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
                     break;
                 }
                 case STATE_WAITING_LOCK: {
+                    Log.d(TAG, "STATE_WAITING_LOCK ----");
+
                     Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
+                    Log.d(TAG, "afState --->" + afState);
+                    Integer aeState = result.get(CaptureResult.CONTROL_AE_STATE);
+                    Log.d(TAG, "aeState ---." + aeState);
                     if (afState == null) {
+                        Log.d(TAG, "STATE_WAITING_LOCK afState null----");
+
                         captureStillPicture();
                     } else if (CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED == afState ||
                             CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED == afState) {
                         // CONTROL_AE_STATE can be null on some devices
-                        Integer aeState = result.get(CaptureResult.CONTROL_AE_STATE);
                         if (aeState == null ||
                                 aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED) {
+                            Log.d(TAG, "STATE_WAITING_LOCK AE ----" +aeState);
+
                             mState = STATE_PICTURE_TAKEN;
                             captureStillPicture();
                         } else {
+                            Log.d(TAG, "STATE_WAITING_LOCK else");
                             runPrecaptureSequence();
                         }
                     }
+
+                    Log.d(TAG, "nonono");
                     break;
                 }
                 case STATE_WAITING_PRECAPTURE: {
@@ -337,6 +373,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
         public void onCaptureProgressed(@NonNull CameraCaptureSession session,
                                         @NonNull CaptureRequest request,
                                         @NonNull CaptureResult partialResult) {
+            Log.d(TAG, "onCaptureProgressed -----");
             process(partialResult);
 
 
@@ -345,6 +382,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
         @Override
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request,
                                        @NonNull TotalCaptureResult result) {
+            //Log.d(TAG, "onCaptureCompleted -----");
             process(result);
         }
 
@@ -380,7 +418,21 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
         }
     }
 
+    private void runPrecaptureSequence() {
+        Log.d(TAG, "runPrecaptureSequence -----");
+        try {
+            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                    CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
+
+            mState = STATE_WAITING_PRECAPTURE;
+            mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+
+    }
     private void unlockFocus() {
+        Log.d(TAG, "unlockFocus -----");
         try {
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
 
@@ -388,9 +440,11 @@ public class Camera2Fragment extends android.support.v4.app.Fragment {
 
             mState = STATE_PREVIEW;
 
-            mCaptureSession.setRepeatingRequest(capture)
+            mCaptureSession.setRepeatingRequest(captureRequest, mCaptureCallback, mBackgroundHandler);
 
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
         }
-
-
     }
+}
+
