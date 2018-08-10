@@ -34,6 +34,7 @@ import android.widget.Toast;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.concurrent.Semaphore;
 
 /**
  * Created by hyunwook on 2018-08-07.
@@ -52,7 +53,10 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
     private Context context;
     private Button capBtn;
 
+    private Semaphore mCameraOpenCloseLock = new Semaphore(1);
     private CaptureViewer captureViewer;
+
+    private CameraCaptureSession  mCaptureSession2;
     /**
      * An additional thread for running tasks that shouldn't block the UI.
      */
@@ -187,25 +191,30 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
     private CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
         @Override
         public void onOpened(@NonNull CameraDevice camera) {
+            mCameraOpenCloseLock.release();
             cameraDevice = camera;
             createCameraPreview();
         }
 
         @Override
         public void onDisconnected(@NonNull CameraDevice camera) {
-            cameraDevice.close();
+            mCameraOpenCloseLock.release();
+            //cameraDevice.close();
+            camera.close();
+            cameraDevice = null;
         }
 
         @Override
         public void onError(@NonNull CameraDevice camera, int error) {
+            mCameraOpenCloseLock.release();
             cameraDevice = null;
-            cameraDevice.close();
+
             camera.close();
         }
     };
 
     private CaptureRequest.Builder mPreviewRequestBuilder;
-
+    private CaptureRequest.Builder mPreviewRequestBuilder2;
     private CameraCaptureSession mCaptureSession;
 
     private void createCameraPreview() {
@@ -221,7 +230,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
             mPreviewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             mPreviewRequestBuilder.addTarget(surface);
 
-
+            //mPreviewRequestBuilder2 = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             //dif
             cameraDevice.createCaptureSession(Arrays.asList(surface),
                     new CameraCaptureSession.StateCallback() {
@@ -263,7 +272,7 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
                         return;
                     }
 
-                    mCaptureSession = session;
+                    mCaptureSession2 = session;
                     triggerimageCapture();
                 }
 
@@ -273,10 +282,11 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
                 }
             };
 
+    CaptureRequest.Builder captureBuilder;
     private void triggerimageCapture() {
         try {
             Log.d(TAG, "triggerImageCapture");
-            final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.addTarget(mImageReader.getSurface());
             captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
             CameraCaptureSession.CaptureCallback CaptureCallback =
@@ -289,9 +299,14 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
                         }
                     };
 
-            mCaptureSession.stopRepeating();
-            mCaptureSession.abortCaptures();
-            mCaptureSession.capture(captureBuilder.build(), CaptureCallback, null);
+            //mCaptureSession.stopRepeating();
+            //mCaptureSession.abortCaptures();
+            //mCaptureSession.capture(captureBuilder.build(), CaptureCallback, null);
+
+            mCaptureSession2.stopRepeating();
+            mCaptureSession2.abortCaptures();
+            mCaptureSession2.capture(captureBuilder.build(), CaptureCallback, null);
+
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -333,21 +348,26 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
     private static final int STATE_PICTURE_TAKEN = 4;
 
     private CaptureRequest captureRequest;
-
+    private CaptureRequest captureRequest2;
     private void takePicture() {
         Log.d(TAG, "takePicture");
 
         if (cameraDevice == null) {
             return;
         }
-        mState = STATE_WAITING_LOCK;
         try {
+      /*  mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
+
+        mState = STATE_WAITING_LOCK;
+
+        mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
+*/
             //mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
 
 
 
             cameraDevice.createCaptureSession(
-                    Collections.singletonList(mImageReader.getSurface()), mSessionCallback, null);
+                    Collections.singletonList(mImageReader.getSurface()), mSessionCallback, null);/**/
 
              //mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
 
@@ -465,6 +485,8 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
             };
 
             mCaptureSession.stopRepeating();
+            mCaptureSession.abortCaptures();
+
             mCaptureSession.capture(captureBuilder.build(), CaptureCallback, null);
         } catch (CameraAccessException e) {
             e.printStackTrace();
@@ -487,13 +509,16 @@ public class Camera2Fragment extends android.support.v4.app.Fragment implements 
     private void unlockFocus() {
         Log.d(TAG, "unlockFocus -----");
         try {
-            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
-
+            //mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
+            captureBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
             //mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
 
             mState = STATE_PREVIEW;
 
-            mCaptureSession.setRepeatingRequest(captureRequest, mCaptureCallback, mBackgroundHandler);
+            captureRequest2 = captureBuilder.build();
+            Log.d(TAG, "captureRequest ->" + captureRequest);
+
+            mCaptureSession2.setRepeatingRequest(captureRequest2, mCaptureCallback, mBackgroundHandler);
 
         } catch (CameraAccessException e) {
             e.printStackTrace();
