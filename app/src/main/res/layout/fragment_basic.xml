@@ -25,7 +25,7 @@
         android:layout_alignParentTop="true"/>
 
     <FrameLayout
-        android:layout_toRightOf="@+id/texture"
+        android:layout_below="@+id/texture"
         android:layout_width="200dp"
         android:layout_height="200dp"
         android:background="@color/border"
